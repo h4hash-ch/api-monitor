@@ -1,0 +1,5 @@
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_PUBLISHABLE_KEY=your_publishable_key
+SUPABASE_SECRET_KEY=your_secret_key
+ALLOW_MANUAL_CHECKS=true
+ALLOW_ONE_MINUTE_INTERVAL=true

@@ -1,0 +1,66 @@
+openapi: 3.0.3
+info:
+  title: API Monitor API
+  version: 1.0.0
+  description: Authenticated monitor management, history, statistics, reports, and manual checks.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /monitors:
+    get:
+      summary: List the authenticated user's monitors
+      responses: { '200': { description: Monitor list } }
+    post:
+      summary: Create a monitor (maximum 25 per user)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MonitorInput' } } } }
+      responses: { '201': { description: Created }, '429': { description: Quota or request limit reached } }
+  /monitors/{id}:
+    parameters: [ { $ref: '#/components/parameters/MonitorId' } ]
+    get: { summary: Get an owned monitor, responses: { '200': { description: Monitor }, '404': { description: Not found } } }
+    patch:
+      summary: Update an owned monitor
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MonitorPatch' } } } }
+      responses: { '200': { description: Updated }, '404': { description: Not found } }
+    delete: { summary: Delete an owned monitor, responses: { '204': { description: Deleted }, '404': { description: Not found } } }
+  /monitors/{id}/checks:
+    parameters: [ { $ref: '#/components/parameters/MonitorId' } ]
+    get:
+      summary: Read retained raw check history
+      parameters: [ { $ref: '#/components/parameters/From' }, { $ref: '#/components/parameters/To' } ]
+      responses: { '200': { description: Check results } }
+  /monitors/{id}/incidents:
+    parameters: [ { $ref: '#/components/parameters/MonitorId' } ]
+    get: { summary: List incident history, responses: { '200': { description: Incidents } } }
+  /monitors/{id}/statistics:
+    parameters: [ { $ref: '#/components/parameters/MonitorId' }, { $ref: '#/components/parameters/From' }, { $ref: '#/components/parameters/To' } ]
+    get: { summary: Get UTC historical statistics (up to 90 days), responses: { '200': { description: Statistics } } }
+  /monitors/{id}/report:
+    parameters: [ { $ref: '#/components/parameters/MonitorId' }, { $ref: '#/components/parameters/From' }, { $ref: '#/components/parameters/To' } ]
+    get: { summary: Download a PDF report, responses: { '200': { description: PDF report, content: { application/pdf: {} } } } }
+  /monitors/{id}/check:
+    parameters: [ { $ref: '#/components/parameters/MonitorId' } ]
+    post: { summary: Development-only immediate owner-authorized check, responses: { '200': { description: Check result }, '403': { description: Disabled in production } } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    MonitorId: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    From: { name: from, in: query, schema: { type: string, format: date }, description: Inclusive UTC date }
+    To: { name: to, in: query, schema: { type: string, format: date }, description: Inclusive UTC date }
+  schemas:
+    MonitorInput:
+      type: object
+      required: [name, url, interval_minutes]
+      properties:
+        name: { type: string, maxLength: 100 }
+        url: { type: string, format: uri, description: HTTP or HTTPS endpoint }
+        enabled: { type: boolean }
+        interval_minutes: { type: integer, enum: [5, 10, 15, 30] }
+        notification_email_enabled: { type: boolean }
+        notification_webhook_enabled: { type: boolean }
+        webhook_url: { type: string, format: uri, description: HTTPS required when webhook notification is enabled }
+    MonitorPatch:
+      allOf: [ { $ref: '#/components/schemas/MonitorInput' } ]
+      description: Every property is optional; the saved complete configuration is validated.
