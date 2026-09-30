@@ -6,7 +6,7 @@ API Monitor lets users create HTTP/HTTPS monitors, automatically check endpoint 
 
 The backend runs on **Cloudflare Workers**, scheduled monitoring uses **Cloudflare Cron**, and persistent data is stored in **Supabase PostgreSQL**.
 
-![Dashboard](docs/images/dashboard.png)
+![Dashboard](docs/images/dashboard.gif)
 
 ---
 
