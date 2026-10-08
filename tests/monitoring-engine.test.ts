@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { checkMonitor } from '../src/services/monitoring-engine';
 
 const monitor: any = {
-  url: 'https://example.test',
+  url: 'https://example.com',
 };
 
 describe('monitoring engine', () => {
@@ -75,5 +75,39 @@ describe('monitoring engine', () => {
     );
 
     expect(result.failureType).toBe('UNEXPECTED_ERROR');
+  });
+
+  it('revalidates redirect targets and blocks private destinations', async () => {
+    let calls = 0;
+    const result = await checkMonitor(monitor, async () => {
+      calls += 1;
+      return new Response(null, {
+        status: 302,
+        headers: { Location: 'http://127.0.0.1/admin' },
+      });
+    });
+
+    expect(calls).toBe(1);
+    expect(result.failureType).toBe('CONNECTION_ERROR');
+  });
+
+  it('follows a public redirect manually', async () => {
+    const requested: string[] = [];
+    const result = await checkMonitor(monitor, async (input) => {
+      requested.push(String(input));
+      if (requested.length === 1) {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: 'https://status.example.com/health' },
+        });
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    expect(requested).toEqual([
+      'https://example.com',
+      'https://status.example.com/health',
+    ]);
+    expect(result.success).toBe(true);
   });
 });

@@ -4,7 +4,7 @@ import { monitorInput, monitorPatch } from '../src/lib/validation';
 describe('monitor validation', () => {
   const input = {
     name: 'API',
-    url: 'http://example.test/health',
+    url: 'http://example.com/health',
     interval_minutes: 5,
   };
 
@@ -13,7 +13,7 @@ describe('monitor validation', () => {
     expect(() => monitorInput.parse({
       ...input,
       notification_webhook_enabled: true,
-      webhook_url: 'http://hooks.example.test/notify',
+      webhook_url: 'http://hooks.example.com/notify',
     })).toThrow(/HTTPS/);
   });
 

@@ -23,6 +23,12 @@ export interface MonitorInput {
   webhook_url?: string | null;
 }
 
+export interface RecentMonitorStatistics {
+  points: DailyMonitorStatistic[];
+  failureTypes: Array<{ type: string; count: number }>;
+  httpStatuses: Array<{ status: number | null; count: number }>;
+}
+
 export class MonitorRepository {
   constructor(private readonly db: SupabaseClient) {}
 
@@ -191,6 +197,29 @@ export class MonitorRepository {
     return data ?? [];
   }
 
+  async checksPage(
+    id: string,
+    userId: string,
+    from: string,
+    to: string,
+    page: number,
+    limit: number,
+  ) {
+    await this.getOwned(id, userId);
+    const start = (page - 1) * limit;
+    const { data, error, count } = await this.db
+      .from('check_results')
+      .select('*', { count: 'exact' })
+      .eq('monitor_id', id)
+      .gte('checked_at', from)
+      .lte('checked_at', `${to}T23:59:59.999Z`)
+      .order('checked_at', { ascending: false })
+      .range(start, start + limit - 1);
+
+    if (error) throw error;
+    return { data: data ?? [], total: count ?? 0 };
+  }
+
   /**
    * All incidents ever recorded for the monitor, unfiltered by date.
    * Used by the plain incident-listing endpoint, which intentionally
@@ -209,6 +238,20 @@ export class MonitorRepository {
 
     if (error) throw error;
     return data ?? [];
+  }
+
+  async incidentsPage(id: string, userId: string, page: number, limit: number) {
+    await this.getOwned(id, userId);
+    const start = (page - 1) * limit;
+    const { data, error, count } = await this.db
+      .from('incidents')
+      .select('*', { count: 'exact' })
+      .eq('monitor_id', id)
+      .order('started_at', { ascending: false })
+      .range(start, start + limit - 1);
+
+    if (error) throw error;
+    return { data: data ?? [], total: count ?? 0 };
   }
 
   /**
@@ -262,5 +305,20 @@ export class MonitorRepository {
 
     if (error) throw error;
     return (data ?? []) as DailyMonitorStatistic[];
+  }
+
+  async recentStatistics(
+    id: string,
+    userId: string,
+    from: string,
+    to: string,
+  ): Promise<RecentMonitorStatistics> {
+    await this.getOwned(id, userId);
+    const { data, error } = await this.db.rpc(
+      'get_recent_monitor_statistics',
+      { p_monitor_id: id, p_from: from, p_to: to },
+    );
+    if (error) throw error;
+    return data as unknown as RecentMonitorStatistics;
   }
 }

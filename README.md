@@ -25,11 +25,12 @@ The backend runs on **Cloudflare Workers**, scheduled monitoring uses **Cloudfla
 * [Database Setup](#database-setup)
 * [Local Development](#local-development)
 * [Testing](#testing)
-* [Production Deployment](#production-deployment)
+* [Production CI/CD Deployment](#production-cicd-deployment)
 * [Production Verification](#production-verification)
 * [API](#api)
 * [5-Minute Demo](#5-minute-demo)
 * [Security](#security)
+* [Roadmap Progress](#roadmap-progress)
 * [Limitations and Non-Goals](#limitations-and-non-goals)
 * [Future Ideas](#future-ideas)
 
@@ -286,6 +287,10 @@ Supabase provides:
 
 ```text
 .
+├── .github/
+│   └── workflows/
+│       └── deploy.yml
+│
 ├── frontend/
 │   ├── ...
 │   ├── vite.config.ts
@@ -411,6 +416,10 @@ Apply the migration:
 ```text
 supabase/migration/0001_initial_schema.sql
 ```
+
+Apply subsequent numbered SQL migrations in order. In particular,
+`supabase/migration/0002_recent_statistics_rpc.sql` is required by the current
+statistics API.
 
 You can apply it using the Supabase SQL Editor on Supabase by simply copy/pasting from **.sql** file or may go with your preferred Supabase database workflow.
 
@@ -546,7 +555,10 @@ ALLOW_ONE_MINUTE_INTERVAL=true
 
 These settings are for development and testing.
 
-They will not be enabled in production as you change the environment credentials to production URL after deployment.
+These flags are enabled only in local `.dev.vars`; the deploy workflow does not
+copy them to Cloudflare. Because local and deployed Worker credentials point to
+the same Supabase project, a local manual check writes into the shared monitor
+history even though only the local Worker initiated it.
 
 The production scheduler uses the configured Cloudflare Cron triggers after deployment.
 
@@ -581,9 +593,11 @@ The test suite covers important application behavior such as:
 
 ---
 
-# Production Deployment
+# Production CI/CD Deployment
 
-Production consists of:
+The repository uses GitHub Actions to verify code and deploy the testing Worker
+to Cloudflare. The frontend and API are served by the same Worker, and Cloudflare
+continues to run scheduled monitoring after a deployment.
 
 ```text
 Cloudflare Worker
@@ -596,181 +610,90 @@ Cloudflare Worker
              Supabase
 ```
 
-There is no separate frontend hosting deployment required.
+There is no separate frontend hosting deployment required. Every push to
+`main` runs tests, TypeScript checks, and a production build. Only after those
+steps pass does GitHub Actions deploy the Worker. Pull requests targeting
+`main` run verification but do not deploy. A push to `main` updates the
+existing testing deployment at `https://10x-api-monitor.apimonitor.workers.dev/`.
 
----
+## One-time GitHub setup
 
-## 1. Prepare Supabase
+In **GitHub → Repository Settings → Secrets and variables → Actions**, add
+these repository secrets:
 
-Use your production Supabase project by simply creating new project on Supabase dashboard and simply change the credentials. You may also go with the same project and keep the same credentials.
+| Secret | Purpose |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Deploy permission for the selected Cloudflare account |
+| `CLOUDFLARE_ACCOUNT_ID` | Identifies the Cloudflare account to Wrangler |
 
-Verify:
+Create a scoped Cloudflare API token with the Workers deployment permissions
+needed for this account. Do not commit it or add it to Supabase settings.
 
-* Supabase Auth is enabled.
-* The database exists.
-* The migration has been applied.
-* Required tables exist.
-* RLS policies exist.
-* Required PostgreSQL functions exist.
+Add these Actions variables. They are browser-visible application configuration,
+so they must contain only the Supabase URL, publishable key, and Worker API URL:
 
----
+| Variable | Value |
+| --- | --- |
+| `VITE_SUPABASE_URL` | The shared Supabase project URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | The shared project's publishable key |
+| `VITE_API_BASE_URL` | `https://10x-api-monitor.apimonitor.workers.dev/api/v1` |
 
-## 2. Authenticate Wrangler
+Do not create a GitHub secret or variable for `SUPABASE_SECRET_KEY`. CI tests
+and builds do not connect to Supabase. The server-side Supabase credentials stay
+in Cloudflare Worker secrets.
 
-Log in:
+## One-time Cloudflare setup
+
+Confirm that the Worker already has these secrets set. If not, authenticate
+Wrangler locally and set them once:
 
 ```bash
 npx wrangler login
-```
-
-Verify the account:
-
-```bash
 npx wrangler whoami
-```
-
-Make sure the correct Cloudflare account is selected.
-
----
-
-## 3. Configure Wrangler
-
-Use:
-
-```text
-wrangler.toml.example
-```
-
-as the basis for your production Wrangler configuration.
-
-The important sections are similar to:
-
-```toml
-name = "10x-api-monitor"
-main = "src/index.ts"
-
-[assets]
-directory = "./dist/frontend"
-not_found_handling = "single-page-application"
-
-[triggers]
-crons = ["*/5 * * * *", "15 1 * * *"]
-```
-
-The Cron schedules represent:
-
-```text
-*/5 * * * *   → monitoring scheduler
-15 1 * * *    → retention/aggregation job
-```
-
-Adjust the Worker name and other configuration for your deployment.
-
----
-
-## 4. Configure production secrets
-
-Store sensitive Supabase credentials as Worker secrets.
-
-```bash
 npx wrangler secret put SUPABASE_URL
 npx wrangler secret put SUPABASE_PUBLISHABLE_KEY
 npx wrangler secret put SUPABASE_SECRET_KEY
 ```
 
-Wrangler will prompt for each value.
+Use the same Supabase project values already configured locally. The committed
+`wrangler.toml` contains non-secret Worker settings, including the production
+origin and Cron schedule. The local `npm run dev` command overrides only
+`APP_ORIGIN` to allow the local frontend.
 
-Never ever commit or expose these values to Git or any public platform.
+## Shared database and migrations
 
-### Important
+Local development and the deployed testing Worker use the same Supabase
+database credentials. Therefore local monitor creation, manual checks, and
+other writes affect the same data used by the live testing site. Use a clearly
+identified test account and test monitors, and do not use local code that can
+delete or corrupt data you need to keep.
 
-This project expects:
+GitHub Actions never runs database migrations. Apply each SQL migration to the
+shared Supabase project deliberately and once. Before deploying the current
+statistics changes, apply
+`supabase/migration/0002_recent_statistics_rpc.sql`; the new code calls that
+function. Do not push to `main` until this migration is in place.
 
-```text
-SUPABASE_SECRET_KEY
-```
+## Normal workflow
 
-Do not rename it to another variable unless the application configuration is changed accordingly.
-
-The secret key is server-side only.
-
----
-
-## 5. Configure production variables
-
-Set the production application origin:
-
-```text
-APP_ORIGIN=https://YOUR-WORKER-URL
-```
-
-Configure normal scheduler settings such as:
-
-```text
-MAX_SCHEDULE_BATCH=25
-MAX_SCHEDULE_BATCHES=2
-CHECK_CONCURRENCY=5
-STATISTICS_CACHE_TTL_SECONDS=180
-```
-
-Do not enable development-only settings in production:
-
-```text
-ALLOW_MANUAL_CHECKS
-ALLOW_ONE_MINUTE_INTERVAL
-```
-
-unless they are intentionally required.
-
----
-
-## 6. Configure the frontend
-
-Before building, make sure the frontend points to the deployed API.
-
-For example:
-
-```text
-VITE_API_BASE_URL=https://YOUR-WORKER-URL/api/v1
-```
-
-Also configure:
-
-```text
-VITE_SUPABASE_URL
-VITE_SUPABASE_PUBLISHABLE_KEY
-```
-
-The Supabase secret key must not appear in any `VITE_*` variable.
-
----
-
-## 7. Build
-
-Run:
+While developing locally, keep using `npm run dev` and `npm run dev:web`. Run
+the same checks locally before pushing:
 
 ```bash
+npm ci
 npm test
+npm run lint
 npm run build
 ```
 
-The frontend build is placed in:
+Push a branch and open a pull request to run verification without deployment.
+After merging to `main`, the successful workflow deploys to Cloudflare. Follow
+the run under **GitHub → Actions** and then complete the production verification
+steps below. `npx wrangler deploy` remains available as a manually authenticated
+fallback, but GitHub Actions is the normal deployment route.
 
-```text
-dist/frontend
-```
-
----
-
-## 8. Deploy
-
-Deploy the Worker and frontend assets:
-
-```bash
-npx wrangler deploy
-```
-
-Wrangler will display the deployed Worker URL.
+For an extra merge guard, configure a GitHub ruleset or branch protection rule
+for `main` that requires the **Test, lint and build** status check to pass.
 
 ---
 
@@ -910,14 +833,21 @@ DELETE /api/v1/monitors/{id}
 ## Check history
 
 ```text
-GET /api/v1/monitors/{id}/checks
+GET /api/v1/monitors/{id}/checks?from=YYYY-MM-DD&to=YYYY-MM-DD&page=1&limit=50
 ```
+
+Check history and incident lists are paginated. `page` defaults to `1`,
+`limit` defaults to `20` and is capped at `100`. Responses contain `data` plus
+`meta` (`page`, `limit`, `total`, `hasMore`). Check history date ranges are
+limited to 90 days.
 
 ## Incidents
 
 ```text
-GET /api/v1/monitors/{id}/incidents
+GET /api/v1/monitors/{id}/incidents?page=1&limit=50
 ```
+
+Incident history uses the same pagination response format.
 
 ## Statistics
 
@@ -1057,6 +987,14 @@ VITE_SUPABASE_PUBLISHABLE_KEY
 
 User data is still protected by authentication, ownership checks, and database RLS.
 
+Monitor and webhook URLs reject local names and private or reserved IP literals.
+Monitor redirects are followed manually, with every destination revalidated
+and a five-redirect limit. Webhook redirects are rejected. Cloudflare Workers do
+not provide this application with a DNS lookup-and-pin interface, so a hostname
+that resolves to a private address cannot be ruled out solely by URL validation;
+review the platform's outbound network controls before accepting untrusted
+monitor URLs at public scale.
+
 ## Data isolation
 
 RLS protects user-owned monitoring data, including:
@@ -1189,6 +1127,9 @@ npx wrangler whoami
 
 ## Deploy
 
+Normal deployment happens through GitHub Actions after a successful push to
+`main`. This command is a manual fallback:
+
 ```bash
 npx wrangler deploy
 ```
@@ -1223,12 +1164,10 @@ It must point to:
 https://YOUR-WORKER-URL/api/v1
 ```
 
-Then rebuild and deploy:
+Update the `VITE_API_BASE_URL` Actions variable, then push to `main` after the
+verification workflow passes. Use `npx wrangler deploy` only for a manual
+fallback.
 
-```bash
-npm run build
-npx wrangler deploy
-```
 
 ### Worker reports an invalid Supabase URL
 
@@ -1329,7 +1268,7 @@ For local development:
 ```bash
 git clone <REPOSITORY_URL>
 cd api-monitor
-npm install
+npm ci
 ```
 
 Configure the local environment and apply:
@@ -1368,16 +1307,36 @@ Build:
 npm run build
 ```
 
-For production:
+For deployment to the testing Worker:
 
 ```bash
-npx wrangler login
-npx wrangler whoami
-npm run build
-npx wrangler deploy
+git push origin main
 ```
 
-Then verify the deployed application, API, authentication, scheduled monitoring, statistics, incidents, and PDF reporting.
+GitHub Actions verifies the change and deploys only when all checks pass. Then
+verify the deployed application, API, authentication, scheduled monitoring,
+statistics, incidents, and PDF reporting.
+
+---
+
+# Roadmap Progress
+
+The project is live for testing. The roadmap in
+[`Further_Implementation.md`](Further_Implementation.md) remains the source of
+truth for launch scope. Completed work includes paginated check and incident
+history APIs, URL destination validation, monitor redirect revalidation,
+webhook redirect rejection, and PostgreSQL aggregation for recent
+dashboard/report statistics. Daily historical aggregates and short-lived
+statistics caching were already present.
+
+Billing, subscriptions, onboarding, marketing pages, and production
+security/load audits remain planned. GitHub Actions now verifies pull requests
+and deploys verified pushes to `main`; no deployment has occurred from this
+workflow yet. Before pushing to `main`, add the GitHub secrets and variables and
+apply `supabase/migration/0002_recent_statistics_rpc.sql` once to the shared
+Supabase project. A successful push to `main` updates the testing Worker; verify
+`/health`, authentication, monitor creation, scheduled checks, incidents,
+pagination, statistics, and PDF reports afterward.
 
 ---
 

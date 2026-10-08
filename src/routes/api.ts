@@ -9,6 +9,7 @@ import { enforceRateLimit } from '../lib/limit';
 import {
   monitorInput,
   monitorPatch,
+  paginationQuery,
   reportQuery,
 } from '../lib/validation';
 import { MonitorRepository } from '../repositories/monitor-repository';
@@ -149,36 +150,56 @@ api.delete('/monitors/:id', async (c) => {
 
 api.get('/monitors/:id/checks', async (c) => {
   const { user, repo } = await context(c);
+  const pagination = paginationQuery.parse({
+    page: c.req.query('page'),
+    limit: c.req.query('limit'),
+  });
 
-  const to =
-    c.req.query('to') ??
-    new Date().toISOString().slice(0, 10);
+  const range = reportQuery.parse({
+    to: c.req.query('to') ?? new Date().toISOString().slice(0, 10),
+    from:
+      c.req.query('from') ??
+      new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
+  });
 
-  const from =
-    c.req.query('from') ??
-    new Date(Date.now() - 30 * 86400000)
-      .toISOString()
-      .slice(0, 10);
-
-  return c.json(
-    await repo.checks(
+  const result = await repo.checksPage(
       c.req.param('id'),
       user.id,
-      from,
-      to,
-    ),
-  );
+      range.from,
+      range.to,
+      pagination.page,
+      pagination.limit,
+    );
+  return c.json({
+    data: result.data,
+    meta: {
+      page: pagination.page,
+      limit: pagination.limit,
+      total: result.total,
+      hasMore: pagination.page * pagination.limit < result.total,
+    },
+  });
 });
 
 api.get('/monitors/:id/incidents', async (c) => {
   const { user, repo } = await context(c);
 
-  // Unlike the statistics endpoints, this listing intentionally
-  // returns every incident ever recorded for the monitor, not just
-  // ones inside a reporting window.
-  return c.json(
-    await repo.incidents(c.req.param('id'), user.id),
+  const pagination = paginationQuery.parse({
+    page: c.req.query('page'),
+    limit: c.req.query('limit'),
+  });
+  const result = await repo.incidentsPage(
+    c.req.param('id'), user.id, pagination.page, pagination.limit,
   );
+  return c.json({
+    data: result.data,
+    meta: {
+      page: pagination.page,
+      limit: pagination.limit,
+      total: result.total,
+      hasMore: pagination.page * pagination.limit < result.total,
+    },
+  });
 });
 
 /**
@@ -187,13 +208,11 @@ api.get('/monitors/:id/incidents', async (c) => {
  *
  *  - daily_monitor_statistics: permanent daily summaries, used for any
  *    requested date older than the 30-day raw retention boundary.
- *  - check_results / incidents: detailed recent records, used for any
- *    requested date on or after that boundary.
+ *  - get_recent_monitor_statistics(): PostgreSQL-computed daily summaries
+ *    and distributions for dates on or after that boundary.
  *
  * combineStatistics() merges both without double-counting, even when
- * dailyStats is empty (i.e. the whole requested range is recent) or
- * recentChecks/recentIncidents are empty (the whole range is
- * historical).
+ * either side of the retention boundary is empty.
  */
 async function statistics(c: ApiContext) {
   const { user, repo } = await context(c);
@@ -240,7 +259,7 @@ async function statistics(c: ApiContext) {
   const recentFrom =
     query.from >= boundary ? query.from : boundary;
 
-  const [dailyStats, recentChecks, recentIncidents] =
+  const [historicalStats, recentStats] =
     await Promise.all([
       hasHistoricalPortion
         ? repo.dailyStatistics(
@@ -253,39 +272,33 @@ async function statistics(c: ApiContext) {
           )
         : Promise.resolve([]),
       hasRecentPortion
-        ? repo.checks(id, user.id, recentFrom, query.to)
-        : Promise.resolve([]),
-      hasRecentPortion
-        ? repo.incidentsInRange(
-            id,
-            user.id,
-            recentFrom,
-            query.to,
-          )
-        : Promise.resolve([]),
+        ? repo.recentStatistics(id, user.id, recentFrom, query.to)
+        : Promise.resolve({ points: [], failureTypes: [], httpStatuses: [] }),
     ]);
+
+  const dailyStats = [...historicalStats, ...recentStats.points];
 
   const summary = combineStatistics({
     dailyStats,
-    recentChecks,
-    recentIncidents,
-    recentRangeStart: recentFrom,
+    recentChecks: [],
+    recentIncidents: [],
+    recentRangeStart: query.to,
     recentRangeEnd: query.to,
   });
 
+  const series = buildStatisticsSeries(summary, dailyStats, []);
+  series.failureTypes = recentStats.failureTypes as typeof series.failureTypes;
+  series.httpStatuses = recentStats.httpStatuses;
+
   try {
-    await cache.put(
-      key,
-      buildStatisticsSeries(summary, dailyStats, recentChecks),
-      Number(c.env.STATISTICS_CACHE_TTL_SECONDS || 180),
-    );
+    await cache.put(key, series, Number(c.env.STATISTICS_CACHE_TTL_SECONDS || 180));
   } catch {
     // Same as above: caching is an optimization only.
   }
 
   return {
     monitor,
-    stats: buildStatisticsSeries(summary, dailyStats, recentChecks),
+    stats: series,
     query,
   };
 }

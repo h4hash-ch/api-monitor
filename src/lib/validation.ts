@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ALLOWED_INTERVALS } from '../db/models';
+import { isPublicHttpUrl } from './safe-url';
 
 const MAX_URL_LENGTH = 2_048;
 
@@ -8,9 +9,8 @@ const httpUrl = z
   .max(MAX_URL_LENGTH, 'URL must not exceed 2048 characters')
   .url()
   .refine(
-    (value) =>
-      ['http:', 'https:'].includes(new URL(value).protocol),
-    'URL must use HTTP or HTTPS',
+    (value) => isPublicHttpUrl(value),
+    'URL must use HTTP or HTTPS and must not target a local or private address',
   );
 
 const webhookUrl = z
@@ -18,8 +18,8 @@ const webhookUrl = z
   .max(MAX_URL_LENGTH, 'URL must not exceed 2048 characters')
   .url()
   .refine(
-    (value) => new URL(value).protocol === 'https:',
-    'Webhook URL must use HTTPS',
+    (value) => isPublicHttpUrl(value, true),
+    'Webhook URL must use HTTPS and must not target a local or private address',
   );
 
 export const monitorInput = z
@@ -95,3 +95,8 @@ export const reportQuery = z
       90 * 86_400_000,
     'Reporting period cannot exceed 90 days'
   );
+
+export const paginationQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});

@@ -16,9 +16,10 @@ type DetailedCheck = {
 
 /**
  * Creates the chart-ready view shared by the dashboard and the PDF report.
- * Old dates come from permanent daily summaries; recent dates retain their
- * detailed checks. Failure/status distributions are deliberately limited to
- * detailed checks, because that is the data retained for those dimensions.
+ * Old dates come from permanent daily summaries; recent dates come from
+ * database-computed daily aggregates. Failure/status distributions are
+ * deliberately limited to recent data because retention does not preserve
+ * those dimensions historically.
  */
 export function buildStatisticsSeries(
   summary: Statistics,

@@ -55,6 +55,11 @@ type Detail = {
   incidents: Incident[];
 };
 
+type Paginated<T> = {
+  data: T[];
+  meta: { page: number; limit: number; total: number; hasMore: boolean };
+};
+
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
@@ -269,11 +274,11 @@ function App() {
         request<StatisticsSeries>(
           `/monitors/${monitorId}/statistics${query}`,
         ),
-        request<CheckResult[]>(
-          `/monitors/${monitorId}/checks${query}`,
+        request<Paginated<CheckResult>>(
+          `/monitors/${monitorId}/checks${query}&page=1&limit=100`,
         ),
-        request<Incident[]>(
-          `/monitors/${monitorId}/incidents`,
+        request<Paginated<Incident>>(
+          `/monitors/${monitorId}/incidents?page=1&limit=100`,
         ),
       ]);
 
@@ -284,7 +289,7 @@ function App() {
         return;
       }
 
-      setDetail({ stats, checks, incidents });
+      setDetail({ stats, checks: checks.data, incidents: incidents.data });
     } catch (e) {
       if (
         sessionRef.current?.user.id !== userId ||

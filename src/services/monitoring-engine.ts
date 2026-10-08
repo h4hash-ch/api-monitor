@@ -1,4 +1,42 @@
 import type { FailureType, Monitor } from '../db/models';
+import { isPublicHttpUrl } from '../lib/safe-url';
+
+const MAX_REDIRECTS = 5;
+
+async function fetchPublicTarget(
+  initialUrl: string,
+  fetcher: typeof fetch,
+  signal: AbortSignal,
+): Promise<Response> {
+  let currentUrl = initialUrl;
+
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+    if (!isPublicHttpUrl(currentUrl)) {
+      throw new TypeError('Monitor URL resolved to a blocked destination');
+    }
+
+    const response = await fetcher(currentUrl, {
+      method: 'GET',
+      signal,
+      redirect: 'manual',
+      headers: { 'User-Agent': '10x-api-monitor/0.1' },
+    });
+
+    if (![301, 302, 303, 307, 308].includes(response.status)) {
+      return response;
+    }
+
+    const location = response.headers.get('Location');
+    await response.body?.cancel();
+    if (!location || redirects === MAX_REDIRECTS) {
+      throw new TypeError('Monitor returned an invalid redirect');
+    }
+
+    currentUrl = new URL(location, currentUrl).toString();
+  }
+
+  throw new TypeError('Monitor exceeded the redirect limit');
+}
 
 export interface EngineResult {
   success: boolean;
@@ -23,14 +61,11 @@ export async function checkMonitor(
   const started = Date.now();
 
   try {
-    const response = await fetcher(monitor.url, {
-      method: 'GET',
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': '10x-api-monitor/0.1',
-      },
-    });
+    const response = await fetchPublicTarget(
+      monitor.url,
+      fetcher,
+      controller.signal,
+    );
 
     const responseMs = Date.now() - started;
 

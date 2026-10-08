@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --var APP_ORIGIN:http://localhost:5173",
     "dev:web": "vite --config frontend/vite.config.ts",
     "build": "tsc --noEmit && vite build --config frontend/vite.config.ts",
     "test": "vitest run",

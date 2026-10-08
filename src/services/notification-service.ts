@@ -2,6 +2,7 @@ import type { Env } from '../env';
 import type { Monitor } from '../db/models';
 import type { IncidentEvent } from './incident-service';
 import { serviceClient } from '../lib/auth';
+import { isPublicHttpUrl } from '../lib/safe-url';
 
 const NOTIFICATION_TIMEOUT_MS = 8_000;
 
@@ -19,6 +20,9 @@ async function deliver(
   url: string,
   init: RequestInit,
 ): Promise<void> {
+  if (!isPublicHttpUrl(url, true)) {
+    throw new Error('Notification destination is not allowed');
+  }
   const controller = new AbortController();
   const timer = setTimeout(
     () => controller.abort(),
@@ -29,6 +33,7 @@ async function deliver(
     const response = await fetch(url, {
       ...init,
       signal: controller.signal,
+      redirect: 'error',
     });
 
     if (!response.ok) {

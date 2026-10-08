@@ -11,11 +11,9 @@ not_found_handling = "single-page-application"
 crons = ["*/5 * * * *", "15 1 * * *"]
 
 [vars]
-#Production
-#APP_ORIGIN = "https://your-worker-subdomain.workers.dev"
+# Production deployment origin; local npm run dev overrides this value.
+APP_ORIGIN = "https://10x-api-monitor.apimonitor.workers.dev"
 
-#Local Development only.
-APP_ORIGIN = "http://localhost:5173"
 MAX_SCHEDULE_BATCH = "25"
 MAX_SCHEDULE_BATCHES = "2"
 CHECK_CONCURRENCY = "5"
