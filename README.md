@@ -323,7 +323,7 @@ Supabase provides:
 
 Install:
 
-* Node.js 20+
+* Node.js 22.12 or newer (required by the current Wrangler and Vitest versions)
 * npm
 * Git
 * A Supabase project
@@ -611,10 +611,12 @@ Cloudflare Worker
 ```
 
 There is no separate frontend hosting deployment required. Every push to
-`main` runs tests, TypeScript checks, and a production build. Only after those
-steps pass does GitHub Actions deploy the Worker. Pull requests targeting
-`main` run verification but do not deploy. A push to `main` updates the
+`main` audits dependencies, runs tests, TypeScript checks, and a production
+build. Only after those steps pass does GitHub Actions deploy the Worker. Pull
+requests targeting `main` run verification but do not deploy. A push to `main` updates the
 existing testing deployment at `https://10x-api-monitor.apimonitor.workers.dev/`.
+The deploy job then retries the Worker's `/health` endpoint and fails if it does
+not return `{"status":"ok"}`.
 
 ## One-time GitHub setup
 
@@ -987,6 +989,19 @@ VITE_SUPABASE_PUBLISHABLE_KEY
 
 User data is still protected by authentication, ownership checks, and database RLS.
 
+Authenticated API requests are limited to 60 per minute per user and Worker
+isolate. Statistics are limited to 30 per minute; PDF reports and development
+manual checks are limited to 5 per minute. Counters are in-memory and isolate-
+local, so these are best-effort safeguards rather than a distributed traffic
+limit. A shared Cloudflare rate limit binding remains a production-hardening
+task. Run `npm audit` when reviewing dependency updates.
+
+The source now configures a Content Security Policy, frame protections, MIME
+sniffing protection, a referrer policy, a restrictive Permissions Policy, and
+HSTS for frontend and Worker responses. These changes take effect after the
+next successful deployment. The frontend CSP allows the same-origin API and
+Supabase project endpoints.
+
 Monitor and webhook URLs reject local names and private or reserved IP literals.
 Monitor redirects are followed manually, with every destination revalidated
 and a five-redirect limit. Webhook redirects are rejected. Cloudflare Workers do
@@ -1327,16 +1342,21 @@ truth for launch scope. Completed work includes paginated check and incident
 history APIs, URL destination validation, monitor redirect revalidation,
 webhook redirect rejection, and PostgreSQL aggregation for recent
 dashboard/report statistics. Daily historical aggregates and short-lived
-statistics caching were already present.
+statistics caching were already present. The first GitHub Actions verification
+and testing Worker deployment succeeded. The workflow uses Node.js 22; local
+development requires Node.js 22.12 or newer. The current source and lockfile
+dependency audit reports no known vulnerabilities; these updates and the new
+per-isolate statistics/PDF limits and security headers await the next
+deployment.
 
 Billing, subscriptions, onboarding, marketing pages, and production
-security/load audits remain planned. GitHub Actions now verifies pull requests
-and deploys verified pushes to `main`; no deployment has occurred from this
-workflow yet. Before pushing to `main`, add the GitHub secrets and variables and
-apply `supabase/migration/0002_recent_statistics_rpc.sql` once to the shared
-Supabase project. A successful push to `main` updates the testing Worker; verify
+security/load audits remain planned. The successful deployment proves the
+Cloudflare GitHub secrets and non-empty frontend Actions variables are
+available. It does not prove that the shared Supabase migration is applied or
+that deployed application flows work; complete the post-deployment checks in
+[`Further_Implementation.md`](Further_Implementation.md), including
 `/health`, authentication, monitor creation, scheduled checks, incidents,
-pagination, statistics, and PDF reports afterward.
+pagination, statistics, and PDF reports.
 
 ---
 

@@ -9,6 +9,19 @@ import {
 
 const app = new Hono<{ Bindings: Env }>();
 
+// Static frontend files receive matching headers from frontend/public/_headers.
+// API/health/PDF responses are produced by this Worker, so set their headers
+// here rather than relying on the static asset configuration.
+app.use('*', async (c, next) => {
+  await next();
+  c.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('X-Frame-Options', 'DENY');
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  c.header('Strict-Transport-Security', 'max-age=31536000');
+});
+
 app.use(
   '*',
   cors({

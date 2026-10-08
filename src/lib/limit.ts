@@ -10,6 +10,8 @@ const hits = new Map<
   }
 >();
 
+let nextCleanupAt = 0;
+
 /**
  * Best-effort, per-isolate rate limit for authenticated API calls. It is not
  * a distributed Cloudflare-wide traffic control and deliberately remains
@@ -21,6 +23,17 @@ export function enforceRateLimit(
   limit = 60
 ): void {
   const now = Date.now();
+
+  // Isolates can handle many short-lived user keys over their lifetime.
+  // Periodically discard expired counters so the map stays bounded by
+  // currently active users instead of retaining stale entries forever.
+  if (now >= nextCleanupAt) {
+    for (const [entryKey, entry] of hits) {
+      if (entry.reset <= now) hits.delete(entryKey);
+    }
+    nextCleanupAt = now + windowMs;
+  }
+
   const entry = hits.get(key);
 
   if (!entry || entry.reset <= now) {

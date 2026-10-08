@@ -43,9 +43,17 @@ api.use('*', async (c, next) => {
 
 type ApiContext = Context<{ Bindings: Env }>;
 
-async function context(c: ApiContext) {
+type RateLimitPolicy = {
+  scope: string;
+  limit: number;
+};
+
+async function context(
+  c: ApiContext,
+  policy: RateLimitPolicy = { scope: 'api', limit: 60 },
+) {
   const user = await authenticatedUser(c.req.raw, c.env);
-  enforceRateLimit(user.id);
+  enforceRateLimit(`${policy.scope}:${user.id}`, policy.limit);
 
   const db = serviceClient(c.env);
 
@@ -214,8 +222,11 @@ api.get('/monitors/:id/incidents', async (c) => {
  * combineStatistics() merges both without double-counting, even when
  * either side of the retention boundary is empty.
  */
-async function statistics(c: ApiContext) {
-  const { user, repo } = await context(c);
+async function statistics(
+  c: ApiContext,
+  policy: RateLimitPolicy = { scope: 'statistics', limit: 30 },
+) {
+  const { user, repo } = await context(c, policy);
   const id = c.req.param('id');
 
   if (!id) {
@@ -304,13 +315,19 @@ async function statistics(c: ApiContext) {
 }
 
 api.get('/monitors/:id/statistics', async (c) => {
-  const result = await statistics(c);
+  const result = await statistics(c, {
+    scope: 'statistics',
+    limit: 30,
+  });
 
   return c.json(result.stats);
 });
 
 api.get('/monitors/:id/report', async (c) => {
-  const result = await statistics(c);
+  const result = await statistics(c, {
+    scope: 'reports',
+    limit: 5,
+  });
 
   const pdf = await makePdfReport(
     result.monitor,
@@ -349,7 +366,10 @@ api.post('/monitors/:id/check', async (c) => {
     );
   }
 
-  const { user, db, repo } = await context(c);
+  const { user, db, repo } = await context(c, {
+    scope: 'manual-checks',
+    limit: 5,
+  });
 
   const monitor = await repo.getOwned(
     c.req.param('id'),
