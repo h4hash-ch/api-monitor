@@ -324,6 +324,14 @@ button:hover {
   transform: translateY(-1px);
 }
 
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid #56e6c7;
+  outline-offset: 3px;
+}
+
 button:disabled {
   opacity: 0.55;
   cursor: wait;
@@ -680,6 +688,37 @@ tr:last-child td {
   padding: 120px 0;
   color: #94a3b8;
   text-align: center;
+}
+
+.empty p {
+  margin: 12px auto 20px;
+}
+
+.error-state {
+  padding: 24px;
+  color: #fecdd3;
+  background: #35151f;
+  border: 1px solid #7f2637;
+  border-radius: 10px;
+}
+
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 42px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 form {

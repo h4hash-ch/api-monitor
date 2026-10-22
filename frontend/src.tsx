@@ -71,8 +71,10 @@ function App() {
   const [password, setPassword] = useState('');
   const [authNotice, setAuthNotice] = useState('');
   const [monitors, setMonitors] = useState<Monitor[]>([]);
+  const [monitorError, setMonitorError] = useState('');
   const [selected, setSelected] = useState<Monitor | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [detailError, setDetailError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -80,6 +82,7 @@ function App() {
   const [name, setName] = useState('My API');
   const [targetUrl, setTargetUrl] = useState('https://example.com');
   const [interval, setInterval] = useState(5);
+  const SHOW_DEMO_LOGIN = import.meta.env.PROD;
 
   const MAX_RANGE_DAYS = 90;
   const DEFAULT_RANGE_DAYS = 30;
@@ -133,8 +136,10 @@ function App() {
 
   const clearPrivateState = () => {
     setMonitors([]);
+    setMonitorError('');
     setSelected(null);
     setDetail(null);
+    setDetailError('');
     setNotice('');
     setDashboardReady(false);
   };
@@ -222,6 +227,7 @@ function App() {
     const userId = currentSession.user.id;
 
     setDashboardReady(false);
+    setMonitorError('');
 
     try {
       const data = await request<Monitor[]>('/monitors');
@@ -238,11 +244,9 @@ function App() {
           data.find((m) => m.id === current?.id) ?? data[0] ?? null,
       );
 
-      setNotice(
-        data.length
-          ? `${data.length} monitor${data.length === 1 ? '' : 's'} loaded.`
-          : 'No monitors yet. Create one to start checking.',
-      );
+      setNotice(data.length
+        ? `${data.length} monitor${data.length === 1 ? '' : 's'} loaded.`
+        : '');
 
       setDashboardReady(true);
     } catch (e) {
@@ -250,7 +254,9 @@ function App() {
         return;
       }
 
-      setNotice(messageOf(e));
+      const message = messageOf(e);
+      setMonitorError(message);
+      setNotice(message);
       setDashboardReady(true);
     }
   };
@@ -265,6 +271,7 @@ function App() {
 
     try {
       setDetail(null);
+      setDetailError('');
 
       // period is user-adjustable (default 30 days, up to 90) rather than
       // a fixed seven-day window.
@@ -298,7 +305,7 @@ function App() {
         return;
       }
 
-      setNotice(messageOf(e));
+      setDetailError(messageOf(e));
     }
   };
 
@@ -482,8 +489,11 @@ function App() {
 
   if (!ready) {
     return (
-      <main className="auth">
-        <p>Restoring your session…</p>
+      <main className="auth" aria-busy="true">
+        <p className="loading-state" role="status">
+          <span className="spinner" aria-hidden="true" />
+          Restoring your session…
+        </p>
       </main>
     );
   }
@@ -494,6 +504,20 @@ function App() {
         <p className="eyebrow">API Monitor</p>
         <h1>{signUp ? 'Create account' : 'Welcome back'}</h1>
         <p>Simple uptime monitoring for your APIs and websites.</p>
+        
+        {SHOW_DEMO_LOGIN && !signUp && (
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setEmail('demo@gmail.com');
+              setPassword('demo123');
+              setAuthNotice('');
+            }}
+          >
+            Login to Demo Account (For Recruiters)
+          </button>
+        )}
 
         <form onSubmit={submitAuth}>
           <label>
@@ -517,10 +541,12 @@ function App() {
             />
           </label>
 
-          {authNotice && <p className="notice">{authNotice}</p>}
+          {authNotice && <p className="notice" role="alert">{authNotice}</p>}
 
           <button disabled={busy}>
-            {signUp ? 'Create account' : 'Sign in'}
+            {busy
+              ? (signUp ? 'Creating account…' : 'Signing in…')
+              : (signUp ? 'Create account' : 'Sign in')}
           </button>
         </form>
 
@@ -541,8 +567,11 @@ function App() {
 
   if (!dashboardReady) {
     return (
-      <main className="auth">
-        <p>Loading your monitors…</p>
+      <main className="auth" aria-busy="true">
+        <p className="loading-state" role="status">
+          <span className="spinner" aria-hidden="true" />
+          Loading your monitors…
+        </p>
       </main>
     );
   }
@@ -568,15 +597,17 @@ function App() {
           <button
             onClick={() => void loadMonitors()}
             className="text"
+            disabled={!dashboardReady}
           >
             Refresh
           </button>
         </div>
 
-        <nav className="monitor-nav">
+        <nav className="monitor-nav" aria-label="Monitors">
           {monitors.map((m) => (
             <button
               key={m.id}
+              aria-current={selected?.id === m.id ? 'page' : undefined}
               className={`monitor ${selected?.id === m.id ? 'selected' : ''
                 }`}
               onClick={() => setSelected(m)}
@@ -609,11 +640,21 @@ function App() {
             <h1>{selected ? selected.name : 'Your monitors'}</h1>
           </div>
 
-          <p className="notice">{notice}</p>
+          <p className="notice" role="status" aria-live="polite">
+            {!selected && monitorError ? '' : notice}
+          </p>
         </header>
 
         {!selected ? (
-          <Empty />
+          monitorError ? (
+            <div className="empty error-state" role="alert">
+              <h2>We couldn’t load your monitors.</h2>
+              <p>{monitorError}</p>
+              <button onClick={() => void loadMonitors()}>Retry</button>
+            </div>
+          ) : (
+            <Empty onAdd={() => setShowCreate(true)} />
+          )
         ) : (
           <section className="detail">
             <div className="section-title">
@@ -750,8 +791,21 @@ function App() {
 
             {detail ? (
               <Dashboard detail={detail} rangeDays={rangeDays} />
+            ) : detailError ? (
+              <div className="error-state" role="alert">
+                <p>We couldn’t load this monitor’s data. {detailError}</p>
+                <button
+                  className="secondary"
+                  onClick={() => void loadDetail(selected)}
+                >
+                  Retry
+                </button>
+              </div>
             ) : (
-              <p>Loading monitor data…</p>
+              <p className="loading-state" role="status" aria-busy="true">
+                <span className="spinner" aria-hidden="true" />
+                Loading monitor data…
+              </p>
             )}
           </section>
         )}
@@ -1344,11 +1398,12 @@ function Metric({
   );
 }
 
-function Empty() {
+function Empty({ onAdd }: { onAdd: () => void }) {
   return (
     <div className="empty">
-      <h2>No monitor selected</h2>
-      <p>Create a monitor on the left to begin.</p>
+      <h2>You don’t have any monitors yet.</h2>
+      <p>Add your first API and we’ll start checking it automatically.</p>
+      <button onClick={onAdd}>Add your first monitor</button>
     </div>
   );
 }
